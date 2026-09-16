@@ -40,7 +40,7 @@ student_thread(void *arg)
 	// wait for bus to board
 	struct student_args *sargs = (struct student_args*)arg;
 	printf("student %d got ticket %d and start waiting\n", sargs->id, myticket);
-	int myturn = station_wait_for_bus(sargs->station, myticket);
+	int myturn = station_wait_for_bus(sargs->station, myticket, sargs->id);
 
 	// update the counter after boarding
         pthread_mutex_lock(&mutex);
