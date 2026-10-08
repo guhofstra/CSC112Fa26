@@ -1,0 +1,556 @@
+# L3-Synchronization.pptx 审阅与修改记录
+
+审阅范围：全部 55 页（含备注、表格、分组形状），渲染检查使用 LibreOffice 导出图以及你的 PowerPoint 导出 PDF。页码均为当前 1-based 位置（第 53、54 页为新增的 Semaphore vs. Monitor 对比页，已审阅并保留；References 现为第 55 页）。幻灯片英文原文用引号标出。
+
+修改方式：只做 run 级文本修改，不增删或重排幻灯片，不换图、不改样式。原件已备份在 `PPTs/bak/audit-20261007/`。共 134 处原子修改（合并后约 120 个段落），涉及 41 页（含备注）。修改后已通过 validate.py（--original），并用 lxml 逐部件比较确认只有预期的幻灯片与备注页发生变化（页数仍为 55）。
+
+## 已修改
+
+先对照了上一份审阅文件 `L3-Synchronization Content Audit.md` 的 A-E 节，逐条核实后落实；以下按页列出（完整的 修改前/修改后 文本见文末附录）。
+
+### 技术错误
+- 第 29 页（Discussions）：
+  - 错误代码 `Consumer(item) {` -> `Consumer() {`，`enqueue(item);` -> `item = dequeue();`（Consumer 应取出而不是放入，与第 28 页一致）。
+  - 死锁解释中 Producer/Consumer 角色写反：空队列时 emptySlots = bufSize，Producer 不会卡在 emptySlots。现改为 "Consumer enters the critical section, calls sem_wait(&fullSlots) and is blocked waiting for Producer to put items into the queue (since fullSlots = 0); Producer calls sem_wait(&mutex) ...; But Consumer will never exit the critical section and call sem_post(&mutex) to wake up Producer!"。
+  - 队列满的情形改为 "Producer holds mutex and is blocked on sem_wait(&emptySlots), and Consumer is blocked on sem_wait(&mutex)."
+- 第 28 页：句子 "can enqueue/dequeue items. concurrently (within critical section protected by mutex)" 自相矛盾，改为 "neither Producer nor Consumer blocks on a slot semaphore, but enqueue/dequeue are still serialized by mutex."；备注 `)://` -> `);//`、`, 1):` -> `, 1);`。
+- 第 37 页：右侧 Waiter 代码块第一行 `unlock(&mutex);` -> `lock(&mutex);`；"(called “spurious wakeups”)" 术语错误，改为 "(Mesa semantics: a signal is only a hint)"，spurious wakeup 的正确解释放进备注。
+- 第 48 页：`id` -> `i`（2 处）；`fork[i+1]` -> `fork[(i + 1) % N]`（pickup 与 putdown，防止 i=N-1 时数组越界）；备注 "right fork (1) before left fork (5)" -> "(0) before (4)"，"Philosopher 2 picks up left fork 1" -> "Philosopher 1"。
+- 第 50 页："A monitor self[i]" -> "A condition variable self[i]"（monitor 只有一个，self[i] 是条件变量）。
+- 第 42 页：编号 "1-5" -> "0-4"（与图、代码、第 48 页一致）；"Dinning" -> "Dining"；"Each philosophers" -> "Each philosopher"。
+- 第 23 页：`TestAndSet(guard)` -> `TestAndSet(&guard, 1)`（与第 11 页的定义一致，2 处）；备注原来引用了本 deck 里不存在的幻灯片，改写为 lost-wakeup 说明（guard=0 与 sleep() 必须原子执行，否则 sem_post 会在线程真正睡眠前把它移到 ready queue，唤醒丢失）。
+- 第 24 页：把 "Called “Binary Semaphore” or “mutex”" 改为 "Called “Binary Semaphore”... (mutex-like, but without ownership)"；"Equivalently," -> "In contrast,"；注释 "Initialize mutex to 1 (unlocked)" -> "// Statically initialized (unlocked)"（pthread_mutex_t 不是整数 1）。
+- 第 20 页："late 60s" -> "the 1960s"。
+- 第 5、7 页：汇编助记符 `ld`/`st` -> `ldr`/`str`（AArch64）。第 5、7 页的代码框与说明文字中的 ld/st 均已改（共 15 处）。
+- 第 11、12 页：`lock-flag` -> `lock->flag`；第 12 页的说明文字 "lock() sets it..returns old" 改为 TestAndSet()/CompareAndSwap()，变量名 "original" -> "old"，"then return" -> "returns"。
+- 第 21 页：标题 "POSIX pthreads API" -> "POSIX Threads & Semaphores API"（表中的 sem_* 属于 POSIX 信号量，不是 pthreads）；备注 `pthread_signal` -> `pthread_cond_signal`，`pthread_wait` -> `pthread_join`。
+- 第 36 页：Hoare 备注 "logician" -> "computer scientist"，并补充 Hoare 语义（signal 后立即把锁和 CPU 交给 waiter，所以 if 就够）；空的 "Mesa-style:" 备注补全；"Xerox-Park Mesa Operating System" -> "Xerox PARC’s Mesa system"。
+- 第 40 页：`cond_wait (&c)` -> `cond_wait(&c, &m)`（缺第二个参数）。
+- 第 32 页：`thread_mutex_t` -> `pthread_mutex_t`；"leads to" -> "can lead to"；多余的 "Broadcast():" 删除。
+- 第 19 页：两处 "mutual execution" -> "mutual exclusion"；"atomical" -> "atomic"；"Only one thread must execute critical section" -> "Only one thread may execute the critical section at a time"。
+- 第 53 页（新增的对比表）：单元格 "causes deadlock" -> "can cause deadlock"（不是必然死锁）。
+
+### 第 15-18 页 Ticket Lock
+- 标题 "Ticket Lock" 被 lock() 代码图片完全盖住，把标题占位符宽度缩到 4300000 EMU（图片左侧）以便可见（3 页）。
+- 第 15-18 页 "tickets" -> "ticket"（与代码 `lock->ticket` 一致）。
+- 第 18 页备注：`turn = 0: No threads are currently holding the lock.` 不准确，改为 "ticket 0 is being served"；原备注在 C unlock 处结束并声称没有线程在等待，与幻灯片表格不符（A 以 ticket 3 再次 lock()），已补上缺失的步骤："Thread A Calls lock() again"、"Thread A stops spinning ... enters the critical section"、"Thread A Calls unlock()"。
+
+### 标题 / 结构
+- 第 2 页 Outline：由 3 项扩展为 8 项（Concurrency & Spinlocks；Semaphores；Producer/Consumer Problem；Deadlock；Monitors；Thread Join Problem；Dining Philosophers；Semaphores vs. Monitors），顺序与 deck 一致。
+- 第 3 页 "Concurrencies" -> "Concurrency"。
+- 第 33 页：重复标题（前面还多一个空格）" Monitor with Condition Variables (CV)" -> "Monitor Structure"。
+- 第 36 页标题 "While vs. if for Checking Boolean flag" -> "While vs. If for Checking a Boolean Flag"；第 37 页 "Mesa monitors" -> "Mesa Monitors"。
+- 第 45 页：与第 43 页同名的标题 -> "Solution 0 (Variant): Deadlock"（起初试过更长的 "Semaphore-based Solution 0 (Variant): Deadlock"，渲染时折成两行，所以缩短）。
+- 第 52 页："Semaphores vs. Monitors" -> "Recap: Semaphores vs. Monitors"（与新增的第 53、54 页区分）。
+- 第 55 页 References：新增 OSTEP（Arpaci-Dusseau, Part II: Concurrency, Ch. 26-31, https://pages.cs.wisc.edu/~remzi/OSTEP/）与 UC Berkeley CS 162（https://cs162.org）两条，并为该占位符加 normAutofit（70%）以免新增行溢出页面。
+
+### 文字 / 排版小错误
+- 第 4 页：`#include "common_threads.h”` 的弯引号 -> 直引号。第 8 页：`lock_t mutex;` 与 `unlock(&mutex);}` 补分号，备注乱码改为 "A good lock:"。第 9 页 "irresponsive" -> "unresponsive"。第 14、15 页弯引号方向。第 26 页 "Consumers picks" -> "pick"（并去掉多余空格）。第 34 页代码末尾多余反引号；第 35 页 `return item;` 补分号；第 41 页 `Pthread_mutex_unlock` -> `pthread_mutex_unlock`；第 45 页多余反引号。第 46 页 "protected by mutex" -> "pickup_mutex"；第 47 页 "start eating concurrently" -> "compete for forks concurrently" 并补句号。
+- 备注清理：第 20 页（"semaphorerywait" -> "sem_trywait"，"This of this" -> "Think of this"，"No otjhTechnically examining value" -> "Technically, examining the value"，删除两处孤立的 "text" 段落）；第 39 页 "incremente1d"、`thr_join(&sem)` -> `thr_join()`；第 40、41 页删除孤立的备注残留段落；第 49 页备注原为 monitor 版本的话（"Because the monitor enforces..."）-> 改为信号量版说明（sem_wait(&self[i]) 在释放 mutex 之后调用，test() 里的 sem_post 会被信号量记住），并更正末尾关于饥饿的句子；第 50 页 "maintain.4" -> "maintain."。
+
+## 已发现但未修改 / 需要你确认
+
+1. 第 51 页 标题占位符为空，正文占位符为空，两栏代码占满整页，没有放标题的位置。建议先把代码下移，再加标题 "Dining Philosophers: Semaphores vs. Monitors"。第 33 页同样残留一个空的正文占位符（只有图片）。未动，以免破坏版面。
+2. 页码：只有少数页有手写页码文本框（第 20、22、23、24、27、29 页），第 21 页显示 "2.21"（来自母版），其他页没有。属于全 deck 的统一问题，没有半修，保持原样；建议统一使用母版页码占位符。deck 内的硬编码幻灯片编号引用（如 "previous slide"）也保持原样。
+3. API 命名混用：`sem_wait/sem_post`、`wait/signal`、`P/V`；第 49-51 页 `mutex_t mutex = 1`、`mutex_lock`、`cond_wait` 与 pthread 原名并存；简写约定只在第 21 页声明（且只覆盖 sem_*）。建议在第 49 页前加一句说明。
+4. 第 28 页：可乐机图片盖住注释 "//Initially, all slots empty" 的末尾。
+5. 第 7 页 "Progress (deadlock-free)" 把 progress 等同于 deadlock-free，说法偏粗；第 6 页备注中的定义来自 Silberschatz，没有引用。
+6. 第 35 页备注使用旧变量名（buf_lock、producer_CV）；第 30 页备注重复。
+7. 第 37 页：在 LibreOffice 渲染中 "Waiter thread / Signaler thread" 标签压在下面的 bullet 上，PowerPoint 里请确认是否重叠。第 28、29 页在 LibreOffice 中文字略超出页面底部（原件也如此），PowerPoint 的 autofit 应能缩放，请确认。
+8. 第 55 页：新增的 OSTEP 章节范围（Ch. 26-31）与 CS162 条目的措辞请你确认；Silberschatz 的定义、哲学家 state 数组方案仍无引用。
+9. 元数据：文档标题仍是 "Lecture 1: Course Introduction and Overview"，作者字段为 Kubiatowicz（来自上游课件），未改。
+10. 两套母版导致标题位置/大小漂移（第 2-19 页 vs 第 20 页起；第 39-41、48-50 页又各不相同），未改。
+11. Hoare 与 Mesa 的对比只出现在第 36 页备注，幻灯片正文只讲 Mesa，可考虑加一行。
+12. 全 deck 没有发现 CSC256 等旧课程代码或旧年份。
+
+## 观察 / 建议
+
+- 文件在你的 PowerPoint 中处于打开状态（目录里有 `~$L3-Synchronization.pptx` 锁文件）。磁盘上的文件已被写入新版本，但 PowerPoint 窗口里仍是旧内容；请不要在该窗口里直接保存，先关闭（不保存）再重新打开。
+- `L3-Synchronization.pdf` 是旧版本，需要重新导出才能包含这些修改以及新增的第 53、54 页。
+- 第 53、54 页内容核实无误（信号量与 monitor 对比、用 monitor 实现信号量的代码），仅做了上述 "can cause" 的措辞调整。
+- Peterson 算法与自旋锁在真实硬件上需要内存屏障/顺序一致性，课件没有提到，可在备注里加一句。
+
+## 附录：完整修改记录（自动生成，按页码顺序；同一段落的多次修改已合并为 原文 -> 最终文本）
+
+说明：where = 形状名称/段落序号（段落序号为修改前的编号），reason 为英文原始记录。
+
+- 第 2 页 / Content Placeholder p0-p3
+  - 修改前: `Concurrency & Spinlocks | Semaphores | Monitors | `
+  - 修改后: `Concurrency & Spinlocks | Semaphores | Producer/Consumer Problem | Deadlock | Monitors | Thread Join Problem | Dining Philosophers | Semaphores vs. Monitors`
+  - 理由: Outline only listed 3 topics; deck also covers Producer/Consumer, Deadlock, Thread Join, Dining Philosophers, and the closing comparison (items reordered to follow the deck order: Semaphores, P/C, Deadlock, Monitors, Thread Join, Dining Philosophers)
+- 第 3 页 / Title 1 p0
+  - 修改前: `Different Types of Concurrencies`
+  - 修改后: `Different Types of Concurrency`
+  - 理由: 'Concurrency' is uncountable; title now 'Different Types of Concurrency'
+- 第 4 页 / Plassholder for innhold 2 p3
+  - 修改前: `#include "common_threads.h”`
+  - 修改后: `#include "common_threads.h"`
+  - 理由: closing quote was a curly quote (”) in #include "common_threads.h" -> would not compile if copied
+- 第 5 页 / 内容占位符 2 p1
+  - 修改前: `ld w8, [x9]: Read the value of counter at memory address x9 into register w8`
+  - 修改后: `ldr w8, [x9]: Read the value of counter at memory address x9 into register w8`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 内容占位符 2 p3
+  - 修改前: `st w8, [x9]: write the new value of counter in register w8 to memory address x9`
+  - 修改后: `str w8, [x9]: write the new value of counter in register w8 to memory address x9`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 9 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `ldr w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 9 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 10 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 10 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 4 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `ldr w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 4 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 5 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `ldr w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 5 页 / 矩形 5 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 7 页 / 矩形 4 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `ldr w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 7 页 / 矩形 4 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 7 页 / 矩形 5 p0
+  - 修改前: `ld w8, [x9]`
+  - 修改后: `ldr w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 7 页 / 矩形 5 p2
+  - 修改前: `st w8, [x9]`
+  - 修改后: `str w8, [x9]`
+  - 理由: 'ld'/'st' are not AArch64 mnemonics (registers w8/x9 are AArch64) -> ldr/str
+- 第 8 页 / Plassholder for innhold 2 p0
+  - 修改前: `lock_t mutex`
+  - 修改后: `lock_t mutex;`
+  - 理由: missing semicolon after 'lock_t mutex'
+- 第 8 页 / Plassholder for innhold 2 p6
+  - 修改前: `  unlock(&mutex)} `
+  - 修改后: `  unlock(&mutex);} `
+  - 理由: missing semicolon after unlock(&mutex)
+- 第 8 页 / notes p0
+  - 修改前: `mutual exclusionA good lock:`
+  - 修改后: `A good lock:`
+  - 理由: garbled notes ('mutual exclusionA good lock:')
+- 第 9 页 / 内容占位符 2 p2
+  - 修改前: `System becomes irresponsive if interrupts are disabled for a long time`
+  - 修改后: `System becomes unresponsive if interrupts are disabled for a long time`
+  - 理由: 'irresponsive' -> 'unresponsive'
+- 第 11 页 / 内容占位符 2 p4
+  - 修改前: `Locking with TAS: TAS fetches the old value of lock->flag into variable old, sets lock->flag to 1, then return variable old, all in one atomic operation`
+  - 修改后: `Locking with TAS: TAS fetches the old value of lock->flag into variable old, sets lock->flag to 1, then returns variable old, all in one atomic operation`
+  - 理由: grammar
+- 第 11 页 / 内容占位符 2 p5
+  - 修改前: `If lock-flag==0, then lock() sets it to 1 and returns old==0, so the thread exits the while loop and enters critical section`
+  - 修改后: `If lock->flag==0, then TestAndSet() sets it to 1 and returns old==0, so the thread exits the while loop and enters critical section`
+  - 理由: lock-flag -> lock->flag (arrow lost); it is TestAndSet(), not lock(), that returns old
+- 第 11 页 / 内容占位符 2 p6
+  - 修改前: `If lock-flag==1, then lock() returns old==1, so the thread spin-waits in the while loop and does not enter critical section`
+  - 修改后: `If lock->flag==1, then TestAndSet() returns old==1, so the thread spin-waits in the while loop and does not enter critical section`
+  - 理由: lock-flag -> lock->flag; TestAndSet() returns old
+- 第 11 页 / 内容占位符 2 p7
+  - 修改前: `If multiple threads call TAS when lock-flag==0, only one thread will see lock-flag==0 , set it to 1 and enter the critical section, and all the other threads will see  lock-flag==1 and spin-wait.`
+  - 修改后: `If multiple threads call TAS when lock->flag==0, only one thread will see lock->flag==0, set it to 1 and enter the critical section, and all the other threads will see lock->flag==1 and spin-wait.`
+  - 理由: lock-flag -> lock->flag; stray spaces
+- 第 12 页 / 内容占位符 2 p1
+  - 修改前: `Locking with CAS: CAS fetches the old value of lock-flag into variable original, compares original with expected (0), and if they are equal (lock-flag==0), sets lock->flag to 1, then return variable original, all in one atomic operation`
+  - 修改后: `Locking with CAS: CAS fetches the old value of lock->flag into variable old, compares old with expected (0), and if they are equal (lock->flag==0), sets lock->flag to 1, then returns variable old, all in one atomic operation`
+  - 理由: text used 'original' / 'lock-flag' but code uses old and lock->flag
+- 第 12 页 / 内容占位符 2 p2
+  - 修改前: `If lock-flag==0, then lock() sets it to 1 and returns old==0, so the thread exits the while loop and enters critical section`
+  - 修改后: `If lock->flag==0, then CompareAndSwap() sets it to 1 and returns old==0, so the thread exits the while loop and enters critical section`
+  - 理由: lock-flag -> lock->flag; CompareAndSwap() (not lock()) returns old
+- 第 12 页 / 内容占位符 2 p3
+  - 修改前: `If lock-flag==1, then lock() returns old==1, so the thread spins in the while loop and does not enter critical section`
+  - 修改后: `If lock->flag==1, then CompareAndSwap() returns old==1, so the thread spins in the while loop and does not enter critical section`
+  - 理由: same
+- 第 14 页 / 内容占位符 2 p4
+  - 修改前: `The return value is the thread’s ”turn” value`
+  - 修改后: `The return value is the thread’s “turn” value`
+  - 理由: opening quote was a closing curly quote
+- 第 15 页 / Content Placeholder 2 p1
+  - 修改前: `tickets (or next_ticket): Tracks the next "ticket number" to be assigned to a thread requesting the lock.`
+  - 修改后: `ticket (or next_ticket): Tracks the next "ticket number" to be assigned to a thread requesting the lock.`
+  - 理由: counter is lock->ticket in the code on slide 14, not 'tickets'
+- 第 15 页 / Content Placeholder 2 p4
+  - 修改前: `A thread atomically increments the tickets counter (using fetch-and-add) and receives its "ticket number.“`
+  - 修改后: `A thread atomically increments the ticket counter (using fetch-and-add) and receives its "ticket number.”`
+  - 理由: same; closing quote typed as opening quote
+- 第 16 页 / 内容占位符 2 p0
+  - 修改前: `Initial value tickets=0 turn=0`
+  - 修改后: `Initial value ticket=0 turn=0`
+  - 理由: match lock->ticket in the code
+- 第 16 页 / Title placeholder
+  - 修改前: `width 11336392 EMU`
+  - 修改后: `width 4300000 EMU (left=419449)`
+  - 理由: title 'Ticket Lock' was completely hidden behind the lock() code picture (picture is drawn on top of it); narrowed the title box so it ends before the picture
+- 第 17 页 / 内容占位符 2 p0
+  - 修改前: `Initial value tickets=0 turn=0`
+  - 修改后: `Initial value ticket=0 turn=0`
+  - 理由: match lock->ticket in the code
+- 第 17 页 / Title placeholder
+  - 修改前: `width 11336392 EMU`
+  - 修改后: `width 4300000 EMU (left=419449)`
+  - 理由: title 'Ticket Lock' was completely hidden behind the lock() code picture (picture is drawn on top of it); narrowed the title box so it ends before the picture
+- 第 18 页 / 内容占位符 2 p0
+  - 修改前: `Initial value tickets=0 turn=0`
+  - 修改后: `Initial value ticket=0 turn=0`
+  - 理由: match lock->ticket in the code
+- 第 18 页 / Title placeholder
+  - 修改前: `width 11336392 EMU`
+  - 修改后: `width 4300000 EMU (left=419449)`
+  - 理由: title 'Ticket Lock' was completely hidden behind the lock() code picture (picture is drawn on top of it); narrowed the title box so it ends before the picture
+- 第 18 页 / notes p1
+  - 修改前: `tickets = 0: No threads have requested the lock yet.`
+  - 修改后: `ticket = 0: No threads have requested the lock yet.`
+  - 理由: match code naming
+- 第 18 页 / notes p2
+  - 修改前: `turn = 0: No threads are currently holding the lock.`
+  - 修改后: `turn = 0: ticket 0 is being served (the thread holding ticket 0 may enter the critical section).`
+  - 理由: turn is the ticket number currently being served; 'no thread holds the lock' was wrong (A enters right away)
+- 第 18 页 / notes p4
+  - 修改前: `Thread A Calls lock(): Thread A increments tickets to 1.`
+  - 修改后: `Thread A Calls lock(): Thread A increments ticket to 1.`
+  - 理由: match code naming
+- 第 18 页 / notes p7
+  - 修改前: `Thread B Calls lock(): Thread B increments tickets to 2.`
+  - 修改后: `Thread B Calls lock(): Thread B increments ticket to 2.`
+  - 理由: match code naming
+- 第 18 页 / notes p10
+  - 修改前: `Thread C Calls lock(): Thread C increments tickets to 3.`
+  - 修改后: `Thread C Calls lock(): Thread C increments ticket to 3.`
+  - 理由: match code naming
+- 第 18 页 / notes p5
+  - 修改前: `Thread A's ticket number is 0 (the value of tickets before incrementing).`
+  - 修改后: `Thread A's ticket number is 0 (the value of ticket before incrementing).`
+  - 理由: match code naming
+- 第 18 页 / notes p28
+  - 修改前: `Scalability Issues: On systems with many CPUs, cache contention can arise because all threads frequently read and write shared variables (tickets and turn).`
+  - 修改后: `Scalability Issues: On systems with many CPUs, cache contention can arise because all threads frequently read and write shared variables (ticket and turn).`
+  - 理由: match code naming
+- 第 18 页 / notes p17
+  - 修改前: `Thread C Calls unlock(): Thread C increments turn to 3, signaling that no threads are currently waiting for the lock.`
+  - 修改后: `Thread C Calls unlock(): Thread C increments turn to 3, signaling that it's now the turn of ticket 3 (Thread A's second lock() request, see the table).`
+  - 理由: notes stopped before the end of the table and wrongly said that nobody is waiting (A is waiting with ticket 3)
+- 第 18 页 / notes after p17
+  - 修改前: `(new paragraph)`
+  - 修改后: `Thread A Calls unlock(): Thread A increments turn to 4; no thread is waiting any more.`
+  - 理由: add the last two rows of the table that the notes skipped
+- 第 18 页 / notes after p16
+  - 修改前: `(new paragraph)`
+  - 修改后: `Thread A stops spinning (turn = 3 matches its ticket number 3) and enters the critical section.`
+  - 理由: add step the notes skipped (table row 'C unlock(), A enters CS')
+- 第 18 页 / notes after p14
+  - 修改前: `(new paragraph)`
+  - 修改后: `Thread A Calls lock() again: Thread A increments ticket to 4; its new ticket number is 3. Since turn = 1, Thread A spins, waiting for its turn.`
+  - 理由: table row 'A lock(), spin-waits' (ticket 4, turn 1) was missing from the notes
+- 第 19 页 / 内容占位符 2 p0
+  - 修改前: `Locks --- mutual execution `
+  - 修改后: `Locks --- mutual exclusion `
+  - 理由: 'mutual execution' -> 'mutual exclusion'
+- 第 19 页 / 内容占位符 2 p1
+  - 修改前: `Only one thread must execute critical section`
+  - 修改后: `Only one thread may execute the critical section at a time`
+  - 理由: wording: 'must' -> 'may ... at a time'
+- 第 19 页 / 内容占位符 2 p2
+  - 修改前: `Hardware support – atomical execution`
+  - 修改后: `Hardware support – atomic execution`
+  - 理由: typo
+- 第 19 页 / 内容占位符 2 p6
+  - 修改前: `Correctness: mutual execution`
+  - 修改后: `Correctness: mutual exclusion`
+  - 理由: 'mutual execution' -> 'mutual exclusion'
+- 第 20 页 / Rectangle 3 p0
+  - 修改前: `Semaphores were proposed by a Dutch computer scientist Dijkstra in late 60s`
+  - 修改后: `Semaphores were proposed by a Dutch computer scientist Dijkstra in the 1960s`
+  - 理由: Dijkstra introduced semaphores in the early/mid 1960s (EWD 123, 1965), not 'late 60s'
+- 第 20 页 / notes p6
+  - 修改前: `semaphorerywait()`
+  - 修改后: `sem_trywait()`
+  - 理由: garbled name in notes (sem_trywait is the non-blocking variant)
+- 第 20 页 / notes p14
+  - 修改前: `This of this as the signal() operation`
+  - 修改后: `Think of this as the signal() operation`
+  - 理由: typo in notes
+- 第 20 页 / notes p15
+  - 修改前: `No otjhTechnically examining value after initialization is not allowed.`
+  - 修改后: `Technically, examining the value after initialization is not allowed.`
+  - 理由: garbled notes
+- 第 20 页 / notes p8
+  - 修改前: `text`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray placeholder word 'text' in notes
+- 第 20 页 / notes p5
+  - 修改前: `text`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray placeholder word 'text' in notes
+- 第 21 页 / Rectangle 2 p0
+  - 修改前: `POSIX pthreads API`
+  - 修改后: `POSIX Threads & Semaphores API`
+  - 理由: table also lists sem_wait/sem_post (POSIX semaphores, <semaphore.h>), which are not part of the pthreads API; title now 'POSIX Threads & Semaphores API'
+- 第 21 页 / notes p10
+  - 修改前: `pthread_signal(condition_variable)`
+  - 修改后: `pthread_cond_signal(condition_variable)`
+  - 理由: no such API (notes)
+- 第 21 页 / notes p14
+  - 修改前: `pthread_wait(t)`
+  - 修改后: `pthread_join(t)`
+  - 理由: no such API (notes); waiting for a thread is pthread_join
+- 第 23 页 / Text Box 5 p0
+  - 修改前: `sem_post() { //Spin-wait while guard is true while (TestAndSet(guard)); if any thread in wait queue {  take thread off wait queue;  place on ready queue; } else {  value = value + 1; } guard = 0;`
+  - 修改后: `sem_post() { //Spin-wait while guard is true while (TestAndSet(&guard, 1)); if any thread in wait queue {  take thread off wait queue;  place on ready queue; } else {  value = value + 1; } guard = 0;`
+  - 理由: TestAndSet takes (int *old_ptr, int new) as defined on slide 11
+- 第 23 页 / Text Box 4 p1
+  - 修改前: ` //Spin-wait while guard is true while (TestAndSet(guard)); if (value == 0) {`
+  - 修改后: ` //Spin-wait while guard is true while (TestAndSet(&guard, 1)); if (value == 0) {`
+  - 理由: same
+- 第 23 页 / notes p0
+  - 修改前: `Note: sleep() and release the lock (set guard=0) must be atomic. Similar to the case on slide “Interrupt re-enable in going to sleep”. (can do this in software without hardware support).`
+  - 修改后: `Note: setting guard = 0 and sleep() must happen atomically (the OS does this inside the kernel). Otherwise, if sem_post() runs between guard = 0 and sleep(), it would move the thread from the wait queue to the ready queue before the thread has actually gone to sleep, and the wakeup would be lost.`
+  - 理由: notes referred to a slide ('Interrupt re-enable in going to sleep') that is not in this deck; rewrote as a self-contained explanation of the lost-wakeup problem
+- 第 24 页 / Rectangle 3 p1
+  - 修改前: `Called “Binary Semaphore” or “mutex”. Can be used for mutual exclusion as a lock`
+  - 修改后: `Called “Binary Semaphore”. Can be used for mutual exclusion as a lock (mutex-like, but without ownership)`
+  - 理由: a binary semaphore is not the same as a mutex (no ownership); contradicted the next paragraph
+- 第 24 页 / Rectangle 3 p3
+  - 修改前: `Equivalently, pthread_mutex_t is designed specifically for mutual exclusion, meaning only one thread can hold the lock at a time. Only the thread that locks the mutex can unlock it, with strict ownership semantics.`
+  - 修改后: `In contrast, pthread_mutex_t is designed specifically for mutual exclusion, meaning only one thread can hold the lock at a time. Only the thread that locks the mutex can unlock it, with strict ownership semantics.`
+  - 理由: 'Equivalently' contradicted the ownership statement that follows
+- 第 24 页 / Plassholder for innhold 2 p8
+  - 修改前: `pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  // Initialize mutex to 1 (unlocked)`
+  - 修改后: `pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  // Statically initialized (unlocked)`
+  - 理由: pthread_mutex_t is not an integer; it is not 'initialized to 1'
+- 第 26 页 / 内容占位符 2 p5
+  - 修改前: `Consumers picks requests from the queue to process`
+  - 修改后: `Consumers pick requests from the queue to process`
+  - 理由: subject-verb agreement (Consumers pick)
+- 第 26 页 / 内容占位符 2 p12
+  - 修改前: `Consumer performs destructive  read: reading an item removes it from the queue`
+  - 修改后: `Consumer performs destructive read: reading an item removes it from the queue`
+  - 理由: double space
+- 第 28 页 / TextBox 5 p1
+  - 修改前: `fullSlots>0 && emptySlots>0: Producer and Consumer can enqueue/dequeue items. concurrently (within critical section protected by mutex).`
+  - 修改后: `fullSlots>0 && emptySlots>0: neither Producer nor Consumer blocks on a slot semaphore, but enqueue/dequeue are still serialized by mutex.`
+  - 理由: original sentence said Producer and Consumer run 'concurrently' inside a critical section protected by mutex (contradiction), plus a stray period
+- 第 28 页 / notes p1
+  - 修改前: ` sem_init(&emptySlots, 0, bufSize)://Initially, all slots empty`
+  - 修改后: ` sem_init(&emptySlots, 0, bufSize);//Initially, all slots empty`
+  - 理由: typo in notes (colon instead of semicolon)
+- 第 28 页 / notes p2
+  - 修改前: ` sem_init(&mutex, 0, 1): `
+  - 修改后: ` sem_init(&mutex, 0, 1); `
+  - 理由: typo in notes (colon instead of semicolon)
+- 第 29 页 / Rectangle 3 p1
+  - 修改前: `  Producer(item) {  sem_wait(&mutex);   sem_wait(&emptySlots);  enqueue(item);  sem_post(&fullSlots);  sem_post(&mutex);    }Consumer(item) {  sem_wait(&mutex);   sem_wait(&fullSlots);  enqueue(item);  sem_post(&emptySlots);  sem_post(&mutex);    }`
+  - 修改后: `No! This may cause deadlock. Suppose the queue is initially empty. Consumer enters the critical section, calls sem_wait(&fullSlots) and is blocked waiting for Producer to put items into the queue (since fullSlots = 0); Producer calls sem_wait(&mutex) and is blocked waiting to enter the critical section. But Consumer will never exit the critical section and call sem_post(&mutex) to wake up Producer!`
+  - 理由: Consumer takes no parameter (cf. slide 28); Consumer must dequeue, not enqueue; deadlock explanation had Producer/Consumer roles reversed: with an empty queue emptySlots=bufSize (Producer does not block on it); it is the Consumer that holds mutex and blocks on fullSlots=0; same; Producer (not Consumer) puts items into the queue
+- 第 29 页 / Rectangle 3 p2
+  - 修改前: `Similar deadlock situation when the queue is full, Consumer is blocked on sem_wait(&fullSlots) and Producer is blocked on sem_wait(&mutex).`
+  - 修改后: `Similar deadlock situation when the queue is full (emptySlots = 0): Producer holds mutex and is blocked on sem_wait(&emptySlots), and Consumer is blocked on sem_wait(&mutex).`
+  - 理由: full-queue case also reversed: it is the Producer that blocks on emptySlots while holding mutex; same
+- 第 32 页 / Rectangle 2 p0
+  - 修改前: ` Monitor with Condition Variables (CV)`
+  - 修改后: `Monitor with Condition Variables (CV)`
+  - 理由: leading space in title (duplicate title on slide 33 handled separately)
+- 第 32 页 / Rectangle 4 p0
+  - 修改前: `thread_mutex_t mutex: a mutex lock`
+  - 修改后: `pthread_mutex_t mutex: a mutex lock`
+  - 理由: API name
+- 第 32 页 / Rectangle 4 p6
+  - 修改前: `Contrast with semaphores: cannot wait on a semaphore inside critical section, otherwise it leads to a deadlock since mutex lock is still held`
+  - 修改后: `Contrast with semaphores: cannot wait on a semaphore inside critical section, otherwise it can lead to a deadlock since the mutex lock is still held`
+  - 理由: overgeneralisation: waiting on a semaphore while holding a mutex can (not always) deadlock
+- 第 32 页 / Rectangle 4 p11
+  - 修改前: `pthread_cond_broadcast(&cond): Broadcast(): Wake up all waiters (if no waiter thread, then the signal is lost/has no effect)`
+  - 修改后: `pthread_cond_broadcast(&cond): Wake up all waiters (if no waiter thread, then the signal is lost/has no effect)`
+  - 理由: stray 'Broadcast():'
+- 第 33 页 / Title 1 p0
+  - 修改前: ` Monitor with Condition Variables (CV)`
+  - 修改后: `Monitor Structure`
+  - 理由: slide had the same title as slide 32 (with a leading space); it shows the monitor diagram -> 'Monitor Structure'
+- 第 34 页 / Plassholder for innhold 2 p21
+  - 修改前: `}```
+  - 修改后: `}`
+  - 理由: stray backticks after closing brace
+- 第 35 页 / TextBox 5 p6
+  - 修改前: `  return item`
+  - 修改后: `  return item;`
+  - 理由: missing semicolon
+- 第 36 页 / Rectangle 2 p0
+  - 修改前: `While vs. if for Checking Boolean flag`
+  - 修改后: `While vs. If for Checking a Boolean Flag`
+  - 理由: title capitalisation consistent with other slide titles
+- 第 36 页 / Rectangle 3 p5
+  - 修改前: `Most OSes use Mesa-style monitor (named after Xerox-Park Mesa Operating System), where the waiter thread when signaled, joins a ready queue, and may start to run some time after Signaler thread calls cond_signal() `
+  - 修改后: `Most OSes use Mesa-style monitor (named after Xerox PARC’s Mesa system), where the waiter thread when signaled, joins a ready queue, and may start to run some time after Signaler thread calls cond_signal() `
+  - 理由: 'Xerox-Park' -> Xerox PARC; Mesa was a language/system developed at PARC, not 'the Mesa Operating System'
+- 第 36 页 / notes p1
+  - 修改前: `Hoare-style: Named after British logician Tony Hoare`
+  - 修改后: `Hoare-style: Named after British computer scientist Tony Hoare; signal() immediately hands the lock (and the CPU) to the waiter, so the waited-for condition is still true when it resumes and a plain if would suffice`
+  - 理由: Tony Hoare is a computer scientist, not a logician; add the Hoare semantics that were missing
+- 第 36 页 / notes p2
+  - 修改前: `Mesa-style: `
+  - 修改后: `Mesa-style: signal() only moves the waiter to the ready queue; the signaler keeps the lock and keeps running, so the waiter must re-check its condition when it wakes up (use while, not if).`
+  - 理由: empty 'Mesa-style:' note filled in
+- 第 37 页 / Rectangle 2 p0
+  - 修改前: `Mesa monitors`
+  - 修改后: `Mesa Monitors`
+  - 理由: title capitalisation
+- 第 37 页 / Rectangle 3 p0
+  - 修改前: `unlock(&mutex);`
+  - 修改后: `lock(&mutex);`
+  - 理由: Waiter code block started with unlock(&mutex) instead of lock(&mutex)
+- 第 37 页 / Rectangle 3 p14
+  - 修改前: `Another thread may be scheduled before Waiter thread gets to run, and "sneak in" to modify the state (e.g., empty the queue), so the buffer empty flag may be true again, and condition may be false again (called “spurious wakeups”).`
+  - 修改后: `Another thread may be scheduled before Waiter thread gets to run, and "sneak in" to modify the state (e.g., empty the queue), so the buffer empty flag may be true again, and condition may be false again (Mesa semantics: a signal is only a hint).`
+  - 理由: another thread sneaking in is not a 'spurious wakeup' (that is a wakeup without any signal); see notes
+- 第 37 页 / notes p3
+  - 修改前: `Need a loop to re-check condition on wakeup`
+  - 修改后: `Need a loop to re-check condition on wakeup. (Separately, POSIX also allows spurious wakeups: cond_wait() may return without any signal, which is another reason to use while.)`
+  - 理由: spurious wakeups explained in the notes
+- 第 39 页 / notes p0
+  - 修改前: `When child thread calls sem_post(&sem) with no Parent thread waiting on it, sem is incremente1d from 0 to 1. Later Parent thread calls sem_wait(&sem) and decrements sem from 1 to 0, so Parent thread will not be blocked.`
+  - 修改后: `When child thread calls sem_post(&sem) with no Parent thread waiting on it, sem is incremented from 0 to 1. Later Parent thread calls sem_wait(&sem) and decrements sem from 1 to 0, so Parent thread will not be blocked.`
+  - 理由: typo in notes
+- 第 39 页 / notes p3
+  - 修改前: `Semaphore sem is initialized to 0. Parent thread calls sem_wait() in thr_join(&sem) and is blocked; when Child thread calls sem_post(&sem) in thr_exit(), parent thread will wake up and continue.`
+  - 修改后: `Semaphore sem is initialized to 0. Parent thread calls sem_wait() in thr_join() and is blocked; when Child thread calls sem_post(&sem) in thr_exit(), parent thread will wake up and continue.`
+  - 理由: thr_join() takes no argument
+- 第 39 页 / notes p4
+  - 修改前: `This program works whether thr_join() is called before or after thr_exit(). Child thread calls sem_post(&sem) in thr_exit(), sem is incremented to 1;when parent thread calls sem_wait() in thr_join(&sem), sem is decremented to 0, so parent thread will not block`
+  - 修改后: `This program works whether thr_join() is called before or after thr_exit(). Child thread calls sem_post(&sem) in thr_exit(), sem is incremented to 1; when parent thread calls sem_wait() in thr_join(), sem is decremented to 0, so parent thread will not block`
+  - 理由: missing space; thr_join() takes no argument
+- 第 40 页 / Content Placeholder 6 p1
+  - 修改前: `If parent waits first: parent calls thr_join() and cond_wait (&c) before child calls thr_exit() and cond_signal(&c). The signal on condition variable c will wake up parent.`
+  - 修改后: `If parent waits first: parent calls thr_join() and cond_wait(&c, &m) before child calls thr_exit() and cond_signal(&c). The signal on condition variable c will wake up parent.`
+  - 理由: cond_wait needs the mutex as 2nd argument
+- 第 40 页 / notes p36
+  - 修改前: `child_done flag`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray leftover fragment in notes
+- 第 40 页 / notes p35
+  - 修改前: `and using while(!child_done) to check the flag, makes the program robust and avoids race conditions.`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray leftover fragment in notes
+- 第 41 页 / Plassholder for innhold 2 p6
+  - 修改前: `  Pthread_mutex_unlock(&m);}//C`
+  - 修改后: `  pthread_mutex_unlock(&m);}//C`
+  - 理由: API name capitalisation
+- 第 41 页 / notes p42
+  - 修改前: `child_done flag`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray leftover fragment in notes
+- 第 41 页 / notes p41
+  - 修改前: `and using while(!child_done) to check the flag, makes the program robust and avoids race conditions.`
+  - 修改后: `(paragraph deleted)`
+  - 理由: stray leftover fragment in notes
+- 第 42 页 / Title 1 p0
+  - 修改前: `Dinning Philosophers`
+  - 修改后: `Dining Philosophers`
+  - 理由: typo
+- 第 42 页 / Content Placeholder 2 p3
+  - 修改前: `Each philosophers occasionally tries to pick up his left and right forks (one at a time) to eat.`
+  - 修改后: `Each philosopher occasionally tries to pick up his left and right forks (one at a time) to eat.`
+  - 理由: grammar
+- 第 42 页 / Content Placeholder 2 p5
+  - 修改前: `Suppose we have 5 philosophers numbered 1-5, and 5 forks numbered 1-5; philosopher i has left fork numbered i, and right fork (i+1)%5.`
+  - 修改后: `Suppose we have 5 philosophers numbered 0-4, and 5 forks numbered 0-4; philosopher i has left fork numbered i, and right fork (i+1)%5.`
+  - 理由: figure and all code on the following slides use 0-4; with 1-5 the formula (i+1)%5 would give fork 0
+- 第 45 页 / Title 1 p0
+  - 修改前: `Semaphore-based Solution: Deadlock`
+  - 修改后: `Solution 0 (Variant): Deadlock`
+  - 理由: same title as slide 43, although it is a different (global-mutex) attempt and a variant of Solution 0 on slide 44
+- 第 45 页 / Content Placeholder 2 p3
+  - 修改前: `Philosopher B does not have to be A’s direct neighbor. There may be a chain of philosophers starting from A, each holding his left fork, and B may be the last one’s neighbor.``
+  - 修改后: `Philosopher B does not have to be A’s direct neighbor. There may be a chain of philosophers starting from A, each holding his left fork, and B may be the last one’s neighbor.`
+  - 理由: stray backtick
+- 第 46 页 / Content Placeholder 2 p1
+  - 修改前: `No deadlock: If philosopher i is in the critical section protected by mutex, blocked in sem_wait() waiting for any fork (left or right), the neighbor who is holding the requested fork and eating can freely put down both forks without blocking, thus allowing philosopher i to pick up both forks. `
+  - 修改后: `No deadlock: If philosopher i is in the critical section protected by pickup_mutex, blocked in sem_wait() waiting for any fork (left or right), the neighbor who is holding the requested fork and eating can freely put down both forks without blocking, thus allowing philosopher i to pick up both forks. `
+  - 理由: use the name from the code (pickup_mutex)
+- 第 47 页 / Content Placeholder 2 p0
+  - 修改前: `Introduce an additional “room” semaphore that limits the number of philosophers permitted to start eating concurrently. For example, if there are N=5 philosophers, room is initialized to N-1=4. With 5 forks and at most 4 philosophers competing, at least one philosopher can always get both forks`
+  - 修改后: `Introduce an additional “room” semaphore that limits the number of philosophers permitted to compete for forks concurrently. For example, if there are N=5 philosophers, room is initialized to N-1=4. With 5 forks and at most 4 philosophers competing, at least one philosopher can always get both forks.`
+  - 理由: 'start eating concurrently' is inaccurate: room limits philosophers competing for forks; missing final period
+- 第 48 页 / Plassholder for innhold 2 p6
+  - 修改前: `    if (id == N - 1) {//One of the philosophers`
+  - 修改后: `    if (i == N - 1) {//One of the philosophers`
+  - 理由: undefined variable id (should be i)
+- 第 48 页 / Plassholder for innhold 2 p14
+  - 修改前: `    if (id == N - 1) {`
+  - 修改后: `    if (i == N - 1) {`
+  - 理由: undefined variable id (should be i)
+- 第 48 页 / Plassholder for innhold 2 p8
+  - 修改前: `    sem_wait(&fork[i+1]); // Pick up right fork`
+  - 修改后: `    sem_wait(&fork[(i + 1) % N]); // Pick up right fork`
+  - 理由: fork[i+1] is out of bounds for i = N-1 (fork[N]); must wrap around
+- 第 48 页 / Plassholder for innhold 2 p16
+  - 修改前: `    sem_post(&fork[i+1]); // Put down right fork`
+  - 修改后: `    sem_post(&fork[(i + 1) % N]); // Put down right fork`
+  - 理由: same (put-down)
+- 第 48 页 / notes p1
+  - 修改前: `4 philosophers pick up left fork before right fork, but 1 philosopher picks up right fork (1) before left fork (5). `
+  - 修改后: `4 philosophers pick up left fork before right fork, but 1 philosopher picks up right fork (0) before left fork (4). `
+  - 理由: fork numbers must be 0-4
+- 第 48 页 / notes p2
+  - 修改前: `This method forces each philosopher to pick up lower-numbered fork before higher-numbered fork (modulo N), i.e., assign a total order to the resources, and establish the convention that all resources will be requested in the same order. Here the order of forks is 0, 1, 2, …, N-1. Philosopher 0 picks up left fork 0 before right fork 1; Philosopher 2 picks up left fork 1 before right fork 2;…; Philosopher N-1 picks up right fork 0 before left fork N-1.`
+  - 修改后: `This method forces each philosopher to pick up lower-numbered fork before higher-numbered fork (modulo N), i.e., assign a total order to the resources, and establish the convention that all resources will be requested in the same order. Here the order of forks is 0, 1, 2, …, N-1. Philosopher 0 picks up left fork 0 before right fork 1; Philosopher 1 picks up left fork 1 before right fork 2;…; Philosopher N-1 picks up right fork 0 before left fork N-1.`
+  - 理由: wrong philosopher number (Philosopher 1 has left fork 1)
+- 第 49 页 / notes p0
+  - 修改前: `Because the monitor enforces mutual exclusion within its procedures, the synchronization code becomes easier to reason about and maintain.4`
+  - 修改后: `Note that sem_wait(&self[i]) is called after releasing the mutex: if a philosopher slept while holding the mutex, no neighbor could run putdown() to wake it up (deadlock). The sem_post() done in test() is remembered by the semaphore even if philosopher i has not reached sem_wait(&self[i]) yet.`
+  - 理由: notes were copied from the monitor slide ('the monitor enforces mutual exclusion...', stray footnote '.4'); replaced with a note that fits the semaphore solution
+- 第 49 页 / notes p2
+  - 修改前: `This solution requires that both forks are available before the philosopher can begin eating, thus naturally avoiding deadlock. Although monitors simplify mutual exclusion by bundling synchronization within a single construct, they may still allow for starvation if a waiting condition is triggered arbitrarily by the signal mechanism.`
+  - 修改后: `This solution requires that both forks are available before the philosopher can begin eating, thus naturally avoiding deadlock. Although this solution is deadlock-free, a philosopher may still starve if its two neighbors keep taking turns eating.`
+  - 理由: sentence about monitors did not belong to the semaphore solution; stated the actual starvation scenario
+- 第 50 页 / Content Placeholder 2 p0
+  - 修改前: `A monitor self[i] is created for each philosopher i.`
+  - 修改后: `A condition variable self[i] is created for each philosopher i.`
+  - 理由: self[i] is a condition variable; there is one monitor (mutex + all condition variables + state[])
+- 第 50 页 / Content Placeholder 2 p3
+  - 修改前: `If both adjacent philosophers are not eating, philosopher i’s state is changed to EATING (cond_signal(&self[i]) has no effect and the signal is  lost since no other philosopher is waiting on self[i]); otherwise, philosopher i waits on condition variable self[i].`
+  - 修改后: `If both adjacent philosophers are not eating, philosopher i’s state is changed to EATING (cond_signal(&self[i]) has no effect and the signal is lost since no other philosopher is waiting on self[i]); otherwise, philosopher i waits on condition variable self[i].`
+  - 理由: double space
+- 第 50 页 / notes p2
+  - 修改前: `Because the monitor enforces mutual exclusion within its procedures, the synchronization code becomes easier to reason about and maintain.4`
+  - 修改后: `Because the monitor enforces mutual exclusion within its procedures, the synchronization code becomes easier to reason about and maintain.`
+  - 理由: stray footnote digit in notes
+- 第 52 页 / Rectangle 2 p0
+  - 修改前: `Semaphores vs. Monitors`
+  - 修改后: `Recap: Semaphores vs. Monitors`
+  - 理由: new slides 53-54 have similar titles; this is the recap of the lecture
+- 第 53 页 / Table cell (Waiting inside a critical section / Semaphore)
+  - 修改前: `Sleeping on a semaphore while holding a mutex causes deadlock (P/C example)`
+  - 修改后: `Sleeping on a semaphore while holding a mutex can cause deadlock (P/C example)`
+  - 理由: overgeneralisation: it can (not always) deadlock
+- 第 55 页 / Content Placeholder
+  - 修改前: `2 entries (two YouTube links)`
+  - 修改后: `+ OSTEP and UC Berkeley CS 162 attribution lines with URLs`
+  - 理由: References lacked the textbook and the course whose slides this lecture is based on (slide 1 acknowledges CS 162)
+- 第 55 页 / Content Placeholder bodyPr
+  - 修改前: `(no autofit)`
+  - 修改后: `normAutofit fontScale=70% lnSpcReduction=20%`
+  - 理由: 4 added lines would otherwise overflow the bottom of the slide
